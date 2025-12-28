@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Happy New Year AR</title>
+    <style>
+        body, html, #root { 
+            margin: 0; padding: 0; width: 100%; height: 100%; 
+            overflow: hidden; background: #000; touch-action: none; 
+        }
+        .loading-container {
+            position: fixed; top: 50%; left: 50%; 
+            transform: translate(-50%, -50%);
+            text-align: center; width: 90%;
+            pointer-events: none;
+            font-family: monospace;
+            z-index: 1000;
+        }
+        .loading-text { color: #FFD700; font-size: 16px; margin-bottom: 10px; }
+        .loading-sub { color: #888; font-size: 12px; }
+    </style>
+
+    <!-- 1. Babel 编译器 -->
+    <script src="https://cdn.bootcdn.net/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+
+    <!-- 2. Import Map (核心依赖) -->
+    <script type="importmap">
+    {
+        "imports": {
+            "react": "https://esm.sh/react@18.2.0",
+            "react/jsx-runtime": "https://esm.sh/react@18.2.0/jsx-runtime",
+            "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+            "three": "https://esm.sh/three@0.160.0",
+            "@react-three/fiber": "https://esm.sh/@react-three/fiber@8.15.14?external=react,react-dom,three",
+            "@react-three/drei": "https://esm.sh/@react-three/drei@9.96.1?external=react,react-dom,three,@react-three/fiber",
+            "@react-three/postprocessing": "https://esm.sh/@react-three/postprocessing@2.16.0?external=react,three,@react-three/fiber",
+            "postprocessing": "https://esm.sh/postprocessing@6.34.0?external=three",
+            "maath": "https://esm.sh/maath@0.10.7?external=three",
+            "uuid": "https://esm.sh/uuid@9.0.1",
+            "lucide-react": "https://esm.sh/lucide-react@0.300.0?external=react"
+        }
+    }
+    </script>
+</head>
+<body>
+    <!-- 错误日志显示区 -->
+    <div id="debug-console" style="display:none; position:fixed; top:0; left:0; width:100%; height:40%; background:rgba(180,0,0,0.95); color:white; overflow:auto; z-index:99999; padding:15px; font-size:13px; font-family:monospace; border-bottom: 2px solid white;">
+        <strong>⚠️ ERROR LOG:</strong><br><br>
+    </div>
+    <script>
+        window.onerror = function (msg, url, lineNo, columnNo, error) {
+            var consoleDiv = document.getElementById('debug-console');
+            consoleDiv.style.display = 'block';
+            consoleDiv.innerHTML += '❌ ' + msg + '<br>Line: ' + lineNo + '<hr>';
+        };
+    </script>
+
+    <div id="root">
+        <div class="loading-container">
+            <div class="loading-text">🚀 SYSTEM INITIALIZING...</div>
+            <div class="loading-sub">Loading 3D Engine & AI Models</div>
+        </div>
+    </div>
+
+    <!-- 3. React 代码 -->
+    <script type="text/babel" data-type="module" data-presets="react">
+        import React, { useRef, useMemo, useState, useEffect, useCallback } from 'react';
+        import { createRoot } from 'react-dom/client';
+        import * as THREE from 'three';
+        import { Canvas, useFrame } from '@react-three/fiber';
+        import { OrbitControls, PerspectiveCamera, Sparkles, Trail, Html } from '@react-three/drei';
+        import { EffectComposer, Bloom, Vignette } from '@react-three/postprocessing';
+        import { easing } from 'maath';
+        import { v4 as uuidv4 } from 'uuid';
+        import { Hand, Sparkles as SparkleIcon, Cpu, Music, PauseCircle, PlayCircle } from 'lucide-react';
+
+        // --- I. 配置 ---
+        const CONFIG = {
+            colors: {
+                corePink: '#FF1053',
+                softPink: '#FF6B90',
+                paleWhite: '#FFF0F5',
+                goldDecor: '#FFC850',
+                spiralGold: '#FFC000',
+                wishCore: '#FF0055',
+                wishGlow: '#FFD700',
+            },
+            tree: {
+                count: 8000, 
+                height: 18,
+                radius: 8.0,
+                spiralLoops: 5.5,
+                outerThreshold: 0.7,
+            },
+            musicUrl: "./bgm.mp3" 
+        };
+
+        // --- II. 音乐组件 ---
+        const BackgroundMusic = () => {
+            const audioRef = useRef(null);
+            const [isPlaying, setIsPlaying] = useState(false);
+
+            useEffect(() => {
+                const audio = audioRef.current;
+                if (!audio) return;
+                audio.play().then(() => setIsPlaying(true)).catch(() => {});
+                
+                const handleGlobalToggle = (e) => {
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+                    if (audio.paused) {
+                        audio.play().then(() => setIsPlaying(true));
+                    } else {
+                        audio.pause();
+                        setIsPlaying(false);
+                    }
+                };
+                window.addEventListener('click', handleGlobalToggle);
+                window.addEventListener('touchstart', handleGlobalToggle);
+                return () => {
+                    window.removeEventListener('click', handleGlobalToggle);
+                    window.removeEventListener('touchstart', handleGlobalToggle);
+                };
+            }, []);
+
+            return (
+                <React.Fragment>
+                    <audio ref={audioRef} src={CONFIG.musicUrl} loop autoPlay preload="auto" />
+                    <div style={{
+                        position: 'fixed', bottom: 20, left: 20, zIndex: 300,
+                        color: isPlaying ? 'rgba(255,255,255,0.6)' : '#FFD700', 
+                        fontSize: '12px', background: 'rgba(0,0,0,0.6)',
+                        padding: '8px 12px', borderRadius: '20px', pointerEvents: 'none',
+                        display: 'flex', alignItems: 'center', gap: '8px', transition: 'all 0.3s',
+                        fontFamily: 'sans-serif'
+                    }}>
+                        {isPlaying ? <PauseCircle size={14} /> : <PlayCircle size={14} className="animate-pulse"/>}
+                        {isPlaying ? "点击屏幕暂停" : "点击屏幕播放"}
+                    </div>
+                </React.Fragment>
+            );
+        };
+
+        // --- III. 工具函数 ---
+        function createGlowTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 64; canvas.height = 64;
+            const context = canvas.getContext('2d');
+            if (context) {
+                const gradient = context.createRadialGradient(32, 32, 0, 32, 32, 32);
+                gradient.addColorStop(0, 'rgba(255, 255, 255, 1)');
+                gradient.addColorStop(0.3, 'rgba(255, 255, 255, 0.6)');
+                gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                context.fillStyle = gradient;
+                context.fillRect(0, 0, 64, 64);
+            }
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        function easeCubicInOut(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        // --- IV. 摄像头与 AI ---
+        const WebcamGestureManager = ({ onGesture }) => {
+            const videoRef = useRef(null);
+            const [statusText, setStatusText] = useState("AI LOADING...");
+            const [isError, setIsError] = useState(false);
+
+            useEffect(() => {
+                let hands, camera, isActive = true;
+
+                const loadScripts = async () => {
+                    const scripts = [
+                        'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js',
+                        'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js'
+                    ];
+
+                    try {
+                        for (const src of scripts) {
+                            if (!document.querySelector(`script[src="${src}"]`)) {
+                                await new Promise((resolve, reject) => {
+                                    const script = document.createElement('script');
+                                    script.src = src;
+                                    script.crossOrigin = "anonymous";
+                                    script.onload = resolve;
+                                    script.onerror = reject;
+                                    document.head.appendChild(script);
+                                });
+                            }
+                        }
+                        if (isActive) initMediaPipe();
+                    } catch (err) {
+                        console.error(err);
+                        if (isActive) {
+                            setStatusText("Network Error (VPN?)");
+                            setIsError(true);
+                        }
+                    }
+                };
+
+                const initMediaPipe = () => {
+                    if (!window.Hands || !window.Camera) {
+                        setTimeout(initMediaPipe, 500);
+                        return;
+                    }
+
+                    hands = new window.Hands({
+                        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+                    });
+
+                    hands.setOptions({
+                        maxNumHands: 1,
+                        modelComplexity: 0,
+                        minDetectionConfidence: 0.5,
+                        minTrackingConfidence: 0.5
+                    });
+
+                    hands.onResults((results) => {
+                        if (!isActive) return;
+                        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                            const landmarks = results.multiHandLandmarks[0];
+                            const isIndexOpen = landmarks[8].y < landmarks[6].y;
+                            const isMiddleOpen = landmarks[12].y < landmarks[10].y;
+                            const isRingOpen = landmarks[16].y < landmarks[14].y;
+                            const isPinkyOpen = landmarks[20].y < landmarks[18].y;
+                            onGesture(isIndexOpen && isMiddleOpen && isRingOpen && isPinkyOpen);
+                        } else {
+                            onGesture(false);
+                        }
+                    });
+
+                    if (videoRef.current) {
+                        camera = new window.Camera(videoRef.current, {
+                            onFrame: async () => {
+                                if (hands && isActive) await hands.send({ image: videoRef.current });
+                            },
+                            width: 640,
+                            height: 480
+                        });
+                        camera.start()
+                            .then(() => { if (isActive) setStatusText(""); }) 
+                            .catch(() => {
+                                if (isActive) {
+                                    setStatusText("Allow Camera!");
+                                    setIsError(true);
+                                }
+                            });
+                    }
+                };
+
+                loadScripts();
+                return () => { isActive = false; if(camera) camera.stop(); if(hands) hands.close(); };
+            }, [onGesture]);
+
+            return (
+                <React.Fragment>
+                    <video ref={videoRef} playsInline muted style={{
+                        position: 'fixed', inset: 0, width: '100%', height: '100%',
+                        objectFit: 'cover', zIndex: -1,
+                        filter: 'brightness(0.35) contrast(1.2) blur(2px)', transform: 'scaleX(-1)',
+                        pointerEvents: 'none'
+                    }} />
+                    {statusText && (
+                        <div style={{
+                            position: 'fixed', top: 20, left: 20, zIndex: 200, color: isError ? '#FF1053' : '#FFD700',
+                            fontSize: '12px', display: 'flex', alignItems: 'center', gap: 8,
+                            background: 'rgba(0,0,0,0.6)', padding: '5px 10px', borderRadius: '4px', fontFamily: 'sans-serif'
+                        }}>
+                            <Cpu size={14} className={isError ? "" : "animate-pulse"} />
+                            {statusText}
+                        </div>
+                    )}
+                </React.Fragment>
+            );
+        };
+
+        // --- V. 3D 场景 ---
+        const PinkTreeParticles = ({ isUnleashed }) => {
+            const groupRef = useRef(null);
+            const glowTexture = useMemo(() => createGlowTexture(), []);
+            
+            const geometryData = useMemo(() => {
+                const { count, height, radius, spiralLoops, outerThreshold } = CONFIG.tree;
+                const totalParticles = count + 2000; 
+                const positions = new Float32Array(totalParticles * 3);
+                const colors = new Float32Array(totalParticles * 3);
+                
+                const colorCore = new THREE.Color(CONFIG.colors.corePink);
+                const colorSoft = new THREE.Color(CONFIG.colors.softPink);
+                const colorPale = new THREE.Color(CONFIG.colors.paleWhite);
+                const colorGold = new THREE.Color(CONFIG.colors.goldDecor);
+                const colorSpiral = new THREE.Color(CONFIG.colors.spiralGold);
+                const tempColor = new THREE.Color();
+
+                for (let i = 0; i < totalParticles; i++) {
+                    let x, y, z;
+                    if (i < count) {
+                        const u = Math.pow(Math.random(), 0.33); 
+                        y = (height / 2) - (u * height);
+                        const currentMaxR = u * radius;
+                        const rRaw = currentMaxR * Math.sqrt(Math.random());
+                        const r = Math.max(0, rRaw + (Math.random()-0.5)*0.5);
+                        const angle = Math.random() * Math.PI * 2;
+                        x = r * Math.cos(angle); z = r * Math.sin(angle);
+                        const heightFactor = u; const rRatio = r / currentMaxR; 
+                        const isOuter = rRatio > outerThreshold; const isTip = u < 0.15; 
+                        if (isOuter && !isTip) {
+                            const rnd = Math.random();
+                            const pPale = 0.25 * heightFactor; const pGold = 0.15 * heightFactor; 
+                            if (rnd < pPale) tempColor.copy(colorPale);
+                            else if (rnd < (pPale + pGold)) tempColor.copy(colorGold);
+                            else tempColor.copy(Math.random() > 0.5 ? colorCore : colorSoft);
+                        } else { tempColor.copy(Math.random() > 0.7 ? colorSoft : colorCore); }
+                    } else {
+                        const t = (i - count) / 2000;
+                        y = (t - 0.5) * height;
+                        const spiralR = (1 - t) * (radius + 0.5); 
+                        const angle = t * spiralLoops * Math.PI * 2;
+                        const jitter = 0.3;
+                        x = spiralR * Math.cos(angle) + (Math.random()-0.5)*jitter;
+                        z = spiralR * Math.sin(angle) + (Math.random()-0.5)*jitter;
+                        tempColor.copy(colorSpiral);
+                    }
+                    positions[i * 3] = x; positions[i * 3 + 1] = y; positions[i * 3 + 2] = z;
+                    colors[i * 3] = tempColor.r; colors[i * 3 + 1] = tempColor.g; colors[i * 3 + 2] = tempColor.b;
+                }
+                return { positions, colors };
+            }, []);
+
+            useFrame((state, delta) => {
+                if (!groupRef.current) return;
+                const breathe = 1 + Math.sin(state.clock.elapsedTime * 2) * 0.01;
+                const targetScale = isUnleashed ? 2.5 : 1.0;
+                const finalScale = targetScale * breathe;
+                easing.damp3(groupRef.current.scale, [finalScale, finalScale, finalScale], 0.2, delta);
+                groupRef.current.rotation.y += delta * 0.15;
+            });
+
+            return (
+                <group ref={groupRef}>
+                    <points frustumCulled={false}>
+                        <bufferGeometry>
+                            <bufferAttribute attach="attributes-position" count={geometryData.positions.length / 3} array={geometryData.positions} itemSize={3} />
+                            <bufferAttribute attach="attributes-color" count={geometryData.colors.length / 3} array={geometryData.colors} itemSize={3} />
+                        </bufferGeometry>
+                        <pointsMaterial map={glowTexture} size={0.45} vertexColors transparent opacity={0.9} blending={THREE.AdditiveBlending} depthWrite={false} />
+                    </points>
+                    <HeartTopper glowTexture={glowTexture} />
+                    <BaseRings />
+                </group>
+            );
+        };
+
+        const HeartTopper = ({ glowTexture }) => {
+            const pointsRef = useRef(null);
+            const { positions, colors } = useMemo(() => {
+                const count = 4000; const pos = []; const col = [];
+                const cOutline = new THREE.Color('#D44D5C'); 
+                const cDeep = new THREE.Color('#8B0000');    
+                const cGold = new THREE.Color('#CCA000');    
+                for (let i = 0; i < count; i++) {
+                    let x, y, z, val;
+                    while (true) {
+                        x = (Math.random() * 3.0) - 1.5; y = (Math.random() * 3.0) - 1.5; z = (Math.random() * 3.0) - 1.5;
+                        const a = x*x + 2.25*y*y + z*z - 1;
+                        val = a*a*a - x*x*z*z*z - 0.1125*y*y*z*z*z;
+                        if (val <= 0) break;
+                    }
+                    pos.push(x, z, y); 
+                    if (val > -0.15) {
+                        if (Math.random() > 0.8) col.push(cGold.r, cGold.g, cGold.b);
+                        else col.push(cOutline.r, cOutline.g, cOutline.b);
+                    } else {
+                        const shade = Math.max(0.6, 1.0 - Math.abs(val) * 0.5);
+                        col.push(cDeep.r * shade, cDeep.g * shade, cDeep.b * shade);
+                    }
+                }
+                return { positions: new Float32Array(pos), colors: new Float32Array(col) };
+            }, []);
+
+            useFrame((state) => {
+                if(!pointsRef.current) return;
+                pointsRef.current.position.y = CONFIG.tree.height / 2 + 2.5; 
+                pointsRef.current.rotation.y = state.clock.elapsedTime * 0.6;
+                pointsRef.current.scale.setScalar(1.2 + Math.sin(state.clock.elapsedTime * 3.5) * 0.05); 
+            });
+
+            return (
+                <points ref={pointsRef}>
+                    <bufferGeometry>
+                        <bufferAttribute attach="attributes-position" count={positions.length / 3} array={positions} itemSize={3} />
+                        <bufferAttribute attach="attributes-color" count={colors.length / 3} array={colors} itemSize={3} />
+                    </bufferGeometry>
+                    <pointsMaterial map={glowTexture} size={0.15} vertexColors transparent opacity={0.3} blending={THREE.AdditiveBlending} depthWrite={false} />
+                </points>
+            );
+        };
+
+        const BaseRings = () => {
+            const ref = useRef(null);
+            useFrame((_, delta) => { if(ref.current) ref.current.rotation.y -= delta * 0.2; });
+            return (
+                <group ref={ref} position={[0, -CONFIG.tree.height / 2, 0]}>
+                    <Sparkles count={100} scale={[14, 1, 14]} size={12} color="#FFD700" />
+                    <Sparkles count={80} scale={[18, 2, 18]} size={8} color="#FF0055" />
+                </group>
+            );
+        };
+
+        const WishEnergyBall = ({ data, onComplete }) => {
+            const ref = useRef(null);
+            const curve = useMemo(() => new THREE.QuadraticBezierCurve3(data.start, data.mid, data.end), [data]);
+            useFrame((_, delta) => {
+                if (!ref.current) return;
+                data.progress += delta * 0.45;
+                if (data.progress >= 1) onComplete(data.id, data.text);
+                else {
+                    const pt = curve.getPoint(easeCubicInOut(data.progress));
+                    ref.current.position.copy(pt);
+                }
+            });
+            return (
+                <group ref={ref}>
+                    <Sparkles count={30} scale={1.5} size={20} color={CONFIG.colors.wishGlow} />
+                    <Trail width={5} length={10} color={CONFIG.colors.wishCore}><mesh visible={false} /></Trail>
+                </group>
+            );
+        };
+
+        // --- VI. UI (Text Change Here) ---
+        const UI = ({ onSend, isUnleashed, setIsUnleashed }) => {
+            const [input, setInput] = useState("");
+            return (
+                <div style={{
+                    position: 'absolute', inset: 0, zIndex: 100, pointerEvents: 'none',
+                    display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+                    padding: '40px 20px', color: '#FFF', fontFamily: '"JetBrains Mono", monospace'
+                }}>
+                    <div style={{ pointerEvents: 'auto' }}>
+                        {/* CHANGED TEXT BELOW */}
+                        <h1 style={{ margin: 0, fontSize: '2.2rem', color: '#FF1053', textShadow: '0 0 15px #FF1053', fontFamily: 'sans-serif', fontWeight:'bold' }}>HAPPY NEW YEAR</h1>
+                        <p style={{ color: '#FFD700', letterSpacing: '3px', fontFamily: 'sans-serif' }}>AI HAND GESTURE AR</p>
+                    </div>
+
+                    <div style={{ position: 'absolute', top: '40px', right: '20px', pointerEvents: 'auto', textAlign: 'right' }}>
+                        <div 
+                            onClick={() => setIsUnleashed(!isUnleashed)}
+                            style={{
+                                background: isUnleashed ? '#FF1053' : 'rgba(0,0,0,0.5)',
+                                border: '2px solid #FFD700', color: '#FFF', padding: '12px 24px', borderRadius: '12px',
+                                display: 'flex', alignItems: 'center', gap: '10px', transition: 'all 0.3s', cursor: 'pointer', fontFamily: 'sans-serif'
+                            }}>
+                            <Hand size={20} /> 
+                            <span style={{ fontSize: '14px', fontWeight: 'bold' }}>
+                                {isUnleashed ? "ENERGY UNLEASHED!" : "SHOW PALM TO UNLEASH"}
+                            </span>
+                        </div>
+                        <p style={{ fontSize: '10px', color: 'rgba(255,255,255,0.5)', marginTop: 8, fontFamily: 'sans-serif' }}>
+                            {window.innerWidth < 768 ? "Tap button to unlock" : "Show hand or tap"}
+                        </p>
+                    </div>
+
+                    <div style={{ width: '100%', display: 'flex', justifyContent: 'center', pointerEvents: 'auto', marginBottom: '20px' }}>
+                        <form 
+                            onSubmit={(e) => { e.preventDefault(); if(input.trim()){ onSend(input); setInput(""); } }}
+                            style={{ display: 'flex', gap: '10px', width: '100%', maxWidth: '420px' }}
+                        >
+                            <input 
+                                value={input} onChange={e => setInput(e.target.value)}
+                                placeholder="Whisper your wish..."
+                                style={{
+                                    flex: 1, background: 'rgba(0,0,0,0.7)', border: '1px solid #FF6B90', borderRadius: '30px',
+                                    padding: '14px 25px', color: '#FFF', outline: 'none', backdropFilter: 'blur(10px)', fontSize: '16px'
+                                }}
+                            />
+                            <button type="submit" style={{
+                                background: '#FF1053', border: 'none', borderRadius: '50%', width: '52px', height: '52px',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 0 15px #FF1053'
+                            }}>
+                                <SparkleIcon size={22} color="white" />
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [isUnleashed, setIsUnleashed] = useState(false);
+            const [wishes, setWishes] = useState([]);
+            const [activeTexts, setActiveTexts] = useState([]);
+
+            const handleGesture = useCallback((unleash) => {
+                setIsUnleashed(unleash);
+            }, []);
+
+            const addWish = useCallback((text) => {
+                setWishes(p => [...p, {
+                    id: uuidv4(), text, progress: 0,
+                    start: new THREE.Vector3((Math.random()-0.5)*15, -15, 10),
+                    mid: new THREE.Vector3((Math.random()-0.5)*25, 0, 5),
+                    end: new THREE.Vector3(0, CONFIG.tree.height/2 + 2, 0)
+                }]);
+            }, []);
+
+            const completeWish = (id, text) => {
+                setWishes(p => p.filter(w => w.id !== id));
+                setActiveTexts(p => [...p, { id: uuidv4(), text }]);
+            };
+
+            return (
+                <React.Fragment>
+                    <WebcamGestureManager onGesture={handleGesture} />
+                    <BackgroundMusic />
+                    <UI onSend={addWish} isUnleashed={isUnleashed} setIsUnleashed={setIsUnleashed} />
+                    
+                    <Canvas dpr={[1, 1.5]} camera={{ position: [0, 2, 40], fov: 50 }} style={{position:'absolute', top:0, left:0}}>
+                        <PerspectiveCamera makeDefault position={[0, 2, 40]} />
+                        <OrbitControls enablePan={false} autoRotate={!isUnleashed} autoRotateSpeed={0.5} minDistance={15} maxDistance={70} />
+                        
+                        <group position={[0, -6, 0]}>
+                            <PinkTreeParticles isUnleashed={isUnleashed} />
+                            {wishes.map(w => <WishEnergyBall key={w.id} data={w} onComplete={completeWish} />)}
+                            
+                            {activeTexts.map((t, i) => (
+                                <Html key={t.id} position={[0, CONFIG.tree.height/2 + 6 + i*2, 0]} center>
+                                    <div style={{
+                                        color: '#FF6B90', fontWeight: 'bold', fontSize: '32px', whiteSpace: 'nowrap',
+                                        textShadow: '0 0 15px #FF1053', fontFamily: 'Courier New, monospace',
+                                        animation: 'floatUp 6s forwards ease-out'
+                                    }} onAnimationEnd={() => setActiveTexts(p => p.filter(x => x.id !== t.id))}>
+                                        {t.text}
+                                    </div>
+                                </Html>
+                            ))}
+                            <Sparkles count={300} scale={60} size={4} speed={0.6} opacity={0.4} color="#FFF" />
+                        </group>
+
+                        <EffectComposer multisampling={0}>
+                            <Bloom luminanceThreshold={0.2} mipmapBlur intensity={1.5} />
+                            <Vignette darkness={0.7} offset={0.1} />
+                        </EffectComposer>
+                    </Canvas>
+                    <style>{`
+                        @keyframes floatUp {
+                            0% { opacity: 0; transform: translateY(30px) scale(0.8); }
+                            15% { opacity: 1; transform: translateY(0) scale(1.1); }
+                            85% { opacity: 1; }
+                            100% { opacity: 0; transform: translateY(-120px) scale(0.9); }
+                        }
+                    `}</style>
+                </React.Fragment>
+            );
+        };
+
+        const root = createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
